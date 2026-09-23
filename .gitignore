@@ -1,0 +1,27 @@
+# Ambientes virtuais
+venv/
+.venv/
+env/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Banco SQLite local e logs
+*.db
+*.db-wal
+*.db-shm
+state.db
+
+# Sockets Unix
+*.sock
+
+# Cache do Orquídea OS
+.cache/
+undo/
