@@ -25,3 +25,6 @@ state.db
 # Cache do Orquídea OS
 .cache/
 undo/
+
+# Arquivos de documentação Markdown
+*.md
