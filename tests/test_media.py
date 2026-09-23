@@ -121,6 +121,37 @@ def test_player_disappearing_returns_offline_metadata(dbus_player) -> None:
     }
 
 
+def test_reconnects_when_player_comes_back(dbus_player) -> None:
+    bus, _, _, properties = dbus_player
+    properties.Get.side_effect = [
+        dbus.exceptions.DBusException("Player closed"),
+        "Playing",
+    ]
+    controller = MediaController()
+
+    assert controller.get_status() == "Offline"
+    assert controller.get_status() == "Playing"
+    assert bus.get_object.call_count == 2
+
+
+def test_metadata_handles_null_and_unexpected_values(dbus_player) -> None:
+    _, _, _, properties = dbus_player
+    properties.Get.side_effect = [None, "Stopped", {
+        "xesam:title": None,
+        "xesam:artist": None,
+        "xesam:album": None,
+        "mpris:artUrl": None,
+    }, "Paused"]
+    controller = MediaController()
+
+    assert controller.get_metadata() == {
+        "title": "", "artist": "", "album": "", "art_url": "", "status": "Stopped",
+    }
+    assert controller.get_metadata() == {
+        "title": "", "artist": "", "album": "", "art_url": "", "status": "Paused",
+    }
+
+
 def test_set_volume_invokes_wpctl(dbus_player) -> None:
     controller = MediaController()
     with patch("agent.tools.media.subprocess.run") as run:
@@ -129,6 +160,7 @@ def test_set_volume_invokes_wpctl(dbus_player) -> None:
     run.assert_called_once_with(
         ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", "35%"],
         check=True,
+        timeout=5,
     )
 
 

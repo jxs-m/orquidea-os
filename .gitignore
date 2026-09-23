@@ -26,5 +26,8 @@ state.db
 .cache/
 undo/
 
+# Open-Claude worktrees e agentes
+.openclaude/
+
 # Arquivos de documentação Markdown
 *.md

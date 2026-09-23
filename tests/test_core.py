@@ -1,5 +1,7 @@
 import threading
 
+import pytest
+
 from daemon.core import OrquideaDaemon
 
 
@@ -63,6 +65,25 @@ def test_start_starts_ipc_and_sampling_thread() -> None:
         assert isinstance(daemon._thread, threading.Thread)
         assert daemon._thread.is_alive()
         assert collector.collect_calls >= 1
+    finally:
+        daemon.stop()
+
+
+def test_start_failure_does_not_start_sampler() -> None:
+    storage = FakeStorage()
+    collector = FakeCollector()
+    ipc_server = FakeIPCServer()
+    daemon = OrquideaDaemon(storage, collector, ipc_server)
+
+    def fail() -> None:
+        raise OSError("Socket unavailable")
+
+    ipc_server.start = fail
+    try:
+        with pytest.raises(OSError, match="Socket unavailable"):
+            daemon.start()
+        assert collector.collect_calls == 0
+        assert daemon._thread is None
     finally:
         daemon.stop()
 

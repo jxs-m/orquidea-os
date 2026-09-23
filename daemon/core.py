@@ -24,19 +24,28 @@ class OrquideaDaemon:
         self._stop_event = threading.Event()
         self._thread: threading.Thread | None = None
         self._lifecycle_lock = threading.Lock()
+        self._closed = False
 
     def start(self) -> None:
         with self._lifecycle_lock:
+            if self._closed:
+                raise RuntimeError("Daemon cannot restart after storage is closed")
             if self._thread is not None and self._thread.is_alive():
                 return
-            self._stop_event.clear()
             self.ipc_server.start()
-            self._thread = threading.Thread(
-                target=self._run,
-                name="orquidea-sampler",
-                daemon=True,
-            )
-            self._thread.start()
+            try:
+                self._stop_event.clear()
+                self._thread = threading.Thread(
+                    target=self._run,
+                    name="orquidea-sampler",
+                    daemon=True,
+                )
+                self._thread.start()
+            except BaseException:
+                self._stop_event.set()
+                self._thread = None
+                self.ipc_server.stop()
+                raise
 
     def tick(self) -> None:
         metrics: dict[str, Any] = self.proc_collector.collect()
@@ -53,11 +62,15 @@ class OrquideaDaemon:
 
     def stop(self) -> None:
         with self._lifecycle_lock:
+            if self._closed:
+                return
             self._stop_event.set()
             thread = self._thread
+            if thread is not None and thread is not threading.current_thread():
+                thread.join()
             self._thread = None
-
-        if thread is not None and thread is not threading.current_thread():
-            thread.join()
-        self.ipc_server.stop()
-        self.storage_manager.close()
+            try:
+                self.ipc_server.stop()
+            finally:
+                self.storage_manager.close()
+                self._closed = True

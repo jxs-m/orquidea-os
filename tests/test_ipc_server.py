@@ -84,6 +84,19 @@ def test_server_removes_stale_socket_before_bind(tmp_path) -> None:
         server.stop()
 
 
+def test_server_refuses_to_remove_active_socket(tmp_path) -> None:
+    socket_path = tmp_path / "orquidea.sock"
+    first = IPCServer(socket_path, FakeStorage(), FakeCollector())
+    second = IPCServer(socket_path, FakeStorage(), FakeCollector())
+    first.start()
+    try:
+        with pytest.raises(FileExistsError, match="already in use"):
+            second.start()
+        assert request(socket_path, {"method": "ping"}) == {"result": "pong"}
+    finally:
+        first.stop()
+
+
 def test_server_refuses_to_remove_non_socket_path(tmp_path) -> None:
     socket_path = tmp_path / "orquidea.sock"
     socket_path.write_text("keep", encoding="utf-8")

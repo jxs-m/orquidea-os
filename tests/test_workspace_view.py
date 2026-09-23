@@ -14,11 +14,17 @@ def app() -> QApplication:
     return application if application is not None else QApplication([])
 
 
-def _process_events(app: QApplication) -> None:
+def _finish_workers(app: QApplication, view: WorkspaceView) -> None:
     loop = QEventLoop()
-    QTimer.singleShot(0, loop.quit)
+    timer = QTimer()
+    timer.setInterval(2)
+    timer.timeout.connect(lambda: loop.quit() if not view._workers else None)
+    timer.start()
+    QTimer.singleShot(2000, loop.quit)
     loop.exec()
+    timer.stop()
     app.processEvents()
+    assert not view._workers
 
 
 def _columns(view: WorkspaceView) -> list[QWidget]:
@@ -40,7 +46,7 @@ def test_view_shows_selected_group_files_and_column_statistics(app: QApplication
     }
 
     view = WorkspaceView(manager)
-    _process_events(app)
+    _finish_workers(app, view)
 
     assert view.splitter.orientation() == Qt.Orientation.Horizontal
     assert view.group_selector.count() == 2
@@ -62,7 +68,7 @@ def test_view_shows_selected_group_files_and_column_statistics(app: QApplication
     )
 
     view.group_selector.setCurrentText("Pessoal")
-    _process_events(app)
+    _finish_workers(app, view)
     assert view.title_label.text() == "Pessoal"
     assert manager.inspect_group_files.call_args.args == ("Pessoal",)
     assert view.splitter.count() == 1
@@ -76,7 +82,7 @@ def test_open_button_opens_its_folder_in_file_manager(app: QApplication) -> None
     manager.inspect_group_files.return_value = {path: []}
 
     view = WorkspaceView(manager)
-    _process_events(app)
+    _finish_workers(app, view)
     button = view.splitter.widget(0).findChild(QPushButton)
     assert button is not None
 
@@ -93,10 +99,36 @@ def test_view_with_no_groups_clears_columns(app: QApplication) -> None:
     manager.list_groups.return_value = []
 
     view = WorkspaceView(manager)
-    _process_events(app)
+    _finish_workers(app, view)
 
     assert view.title_label.text() == "Nenhum grupo"
     assert view.group_selector.count() == 0
     assert view.splitter.count() == 0
     manager.inspect_group_files.assert_not_called()
+    view.close()
+
+
+def test_create_group_runs_asynchronously(app: QApplication) -> None:
+    manager = Mock()
+    manager.list_groups.side_effect = [
+        [],
+        [{"nome": "Projetos", "caminhos": ["/home/user/proj"]}],
+    ]
+    manager.create_group.return_value = None
+    manager.inspect_group_files.return_value = {"/home/user/proj": []}
+
+    view = WorkspaceView(manager)
+    _finish_workers(app, view)
+    assert view.group_selector.count() == 0
+
+    with patch(
+        "PyQt6.QtWidgets.QInputDialog.getText",
+        side_effect=[("Projetos", True), ("/home/user/proj", True)],
+    ):
+        view.new_group_button.click()
+
+    _finish_workers(app, view)
+    manager.create_group.assert_called_once_with("Projetos", ["/home/user/proj"])
+    assert view.group_selector.currentText() == "Projetos"
+    assert view.title_label.text() == "Projetos"
     view.close()

@@ -16,9 +16,11 @@ from PyQt6.QtWidgets import (
 from agent.tools.media import MediaController
 from agent.tools.workspaces import WorkspaceManager
 from daemon.storage import StorageManager
+from ui.overlay import OrchidOverlay
 from ui.theme import load_stylesheet
 from ui.views.workspace_view import WorkspaceView
 from ui.widgets.media_bar import MediaBar
+from ui.widgets.quick_hud import QuickHUD
 
 
 class MainWindow(QMainWindow):
@@ -132,6 +134,8 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event: Any) -> None:
         self.media_bar.refresh_timer.stop()
+        if hasattr(self, "workspace_view"):
+            self.workspace_view.begin_close()
         if self._storage_manager is not None:
             self._storage_manager.close()
         super().closeEvent(event)
@@ -141,6 +145,12 @@ def main() -> int:
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyleSheet(load_stylesheet())
     window = MainWindow()
+    hud = QuickHUD(main_window=window)
+    overlay = OrchidOverlay()
+    overlay.signal_clicked.connect(lambda: hud.toggle_at(overlay.geometry().center()))
+    hud.prompt_submitted.connect(
+        lambda text: overlay.show_bubble(f"AGY: Mensagem recebida ('{text[:18]}...')")
+    )
     window.show()
     return app.exec()
 

@@ -121,6 +121,29 @@ def test_local_vault_raises_for_unknown_key(tmp_path) -> None:
         vault.get_secret("calendar", "correct password")
 
 
+def test_local_vault_rejects_malformed_data_without_overwriting_it(tmp_path) -> None:
+    vault_path = tmp_path / "vault.json"
+    malformed = '{"salt": "invalid", "secrets": {}}'
+    vault_path.write_text(malformed, encoding="utf-8")
+    vault = LocalVault(vault_path)
+
+    with pytest.raises(ValueError, match="Invalid vault format"):
+        vault.store_secret("mail", "sensitive value", "password")
+    assert vault_path.read_text(encoding="utf-8") == malformed
+
+
+def test_local_vault_rejects_symlinked_vault_path(tmp_path) -> None:
+    target = tmp_path / "target.json"
+    target.write_text("do not overwrite", encoding="utf-8")
+    vault_path = tmp_path / "vault.json"
+    vault_path.symlink_to(target)
+    vault = LocalVault(vault_path)
+
+    with pytest.raises(ValueError, match="symlink"):
+        vault.store_secret("mail", "sensitive value", "password")
+    assert target.read_text(encoding="utf-8") == "do not overwrite"
+
+
 def test_local_vault_lists_only_secret_labels(tmp_path) -> None:
     vault_path = tmp_path / "nested" / "vault.json"
     vault = LocalVault(vault_path)

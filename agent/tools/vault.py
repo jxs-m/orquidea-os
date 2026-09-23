@@ -1,7 +1,9 @@
 import base64
 import json
+import os
 import secrets
 import stat
+import tempfile
 from pathlib import Path
 from typing import Literal, TypedDict
 
@@ -82,17 +84,53 @@ class LocalVault:
         return kdf.derive(master_password.encode("utf-8"))
 
     def _read_data(self) -> dict[str, object] | None:
-        if not self.vault_path.exists():
+        if self.vault_path.is_symlink():
+            raise ValueError("Vault path must not be a symlink")
+        try:
+            with self.vault_path.open("r", encoding="utf-8") as stream:
+                data = json.load(stream)
+        except FileNotFoundError:
             return None
-        data = json.loads(self.vault_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             raise ValueError("Invalid vault format")
+        salt = data.get("salt")
+        entries = data.get("secrets")
+        if not isinstance(salt, str) or not isinstance(entries, dict):
+            raise ValueError("Invalid vault format")
+        try:
+            if len(base64.b64decode(salt, validate=True)) != self.SALT_SIZE:
+                raise ValueError("Invalid vault format")
+        except (ValueError, base64.binascii.Error) as exc:
+            raise ValueError("Invalid vault format") from exc
+        for name, entry in entries.items():
+            if not isinstance(name, str) or not isinstance(entry, dict):
+                raise ValueError("Invalid vault format")
+            nonce = entry.get("nonce")
+            ciphertext = entry.get("ciphertext")
+            if not isinstance(nonce, str) or not isinstance(ciphertext, str):
+                raise ValueError("Invalid vault format")
+            try:
+                if len(base64.b64decode(nonce, validate=True)) != self.NONCE_SIZE:
+                    raise ValueError("Invalid vault format")
+                base64.b64decode(ciphertext, validate=True)
+            except (ValueError, base64.binascii.Error) as exc:
+                raise ValueError("Invalid vault format") from exc
         return data
 
     def _write_data(self, data: dict[str, object]) -> None:
+        if self.vault_path.is_symlink():
+            raise ValueError("Vault path must not be a symlink")
         self.vault_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        self.vault_path.write_text(json.dumps(data, separators=(",", ":")), encoding="utf-8")
-        self.vault_path.chmod(0o600)
+        descriptor, temporary_path = tempfile.mkstemp(dir=self.vault_path.parent)
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, separators=(",", ":"))
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary_path, self.vault_path)
+        finally:
+            if os.path.exists(temporary_path):
+                os.unlink(temporary_path)
 
     def store_secret(self, key_name: str, secret_value: str, master_password: str) -> None:
         data = self._read_data()

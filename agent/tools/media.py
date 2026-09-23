@@ -22,7 +22,6 @@ class MediaController:
         self._player: Any | None = None
         self._proxy: Any | None = None
         self._service_name = "org.mpris.MediaPlayer2.spotify"
-        self._offline = False
 
     @staticmethod
     def _empty_metadata() -> MediaMetadata:
@@ -38,11 +37,8 @@ class MediaController:
         self._bus = None
         self._player = None
         self._proxy = None
-        self._offline = True
 
     def _connect(self) -> Any:
-        if self._offline:
-            raise dbus.exceptions.DBusException("MPRIS player is offline")
         if self._player is not None:
             return self._player
 
@@ -110,14 +106,18 @@ class MediaController:
             self._clear_connection()
             return self._empty_metadata()
 
-        artists = metadata.get("xesam:artist", [])
+        if not isinstance(metadata, dict):
+            metadata = {}
+        artists = metadata.get("xesam:artist")
         if isinstance(artists, (str, bytes)):
             artists = [artists]
+        elif not isinstance(artists, (list, tuple)):
+            artists = []
         return {
-            "title": str(metadata.get("xesam:title", "")),
-            "artist": ", ".join(str(artist) for artist in artists),
-            "album": str(metadata.get("xesam:album", "")),
-            "art_url": str(metadata.get("mpris:artUrl", "")),
+            "title": str(metadata.get("xesam:title") or ""),
+            "artist": ", ".join(str(artist) for artist in artists if artist is not None),
+            "album": str(metadata.get("xesam:album") or ""),
+            "art_url": str(metadata.get("mpris:artUrl") or ""),
             "status": status,
         }
 
@@ -127,4 +127,5 @@ class MediaController:
         subprocess.run(
             ["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{percent}%"],
             check=True,
+            timeout=5,
         )
